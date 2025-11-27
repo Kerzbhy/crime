@@ -1,20 +1,26 @@
-# models/topsis.py
-
 import numpy as np
 
 def perform_topsis(matrix, weights, impacts):
     """
-    Fungsi untuk menjalankan algoritma TOPSIS.
-    - matrix: Matriks keputusan (numpy array m x n).
-    - weights: Bobot untuk setiap kriteria (list atau numpy array).
-    - impacts: Jenis kriteria, +1 untuk benefit, -1 untuk cost (list).
+    Fungsi untuk menjalankan algoritma TOPSIS lengkap dengan detail per langkah.
     """
+    
+    # Validasi input array
+    if not matrix or len(matrix) == 0:
+        return {}
+        
     matrix = np.array(matrix, dtype=float)
     weights = np.array(weights, dtype=float)
     impacts = np.array(impacts)
 
     # 1. Normalisasi matriks
-    norm_matrix = matrix / np.sqrt(np.sum(matrix**2, axis=0))
+    # Hitung pembagi (akar dari penjumlahan kuadrat kolom)
+    divisors = np.sqrt(np.sum(matrix**2, axis=0))
+    
+    # Pencegahan error jika ada kolom bernilai 0 semua (hindari divide by zero)
+    divisors[divisors == 0] = 1 
+    
+    norm_matrix = matrix / divisors
 
     # 2. Normalisasi terbobot
     weighted_matrix = norm_matrix * weights
@@ -24,24 +30,40 @@ def perform_topsis(matrix, weights, impacts):
     ideal_negative = np.zeros(weighted_matrix.shape[1])
 
     for i in range(weighted_matrix.shape[1]):
-        if impacts[i] == 1: # Benefit
-            ideal_positive[i] = np.max(weighted_matrix[:, i])
-            ideal_negative[i] = np.min(weighted_matrix[:, i])
-        else: # Cost
-            ideal_positive[i] = np.min(weighted_matrix[:, i])
-            ideal_negative[i] = np.max(weighted_matrix[:, i])
+        col_values = weighted_matrix[:, i]
+        if impacts[i] == 1: # Benefit (Makin besar makin bagus)
+            ideal_positive[i] = np.max(col_values)
+            ideal_negative[i] = np.min(col_values)
+        else: # Cost (Makin kecil makin bagus)
+            ideal_positive[i] = np.min(col_values)
+            ideal_negative[i] = np.max(col_values)
 
-    # 4. Menghitung jarak ke solusi ideal
+    # 4. Menghitung jarak ke solusi ideal (Euclidean Distance)
     dist_positive = np.sqrt(np.sum((weighted_matrix - ideal_positive)**2, axis=1))
     dist_negative = np.sqrt(np.sum((weighted_matrix - ideal_negative)**2, axis=1))
 
     # 5. Menghitung skor preferensi
-    score = dist_negative / (dist_positive + dist_negative)
+    # Mencegah pembagian dengan nol
+    denominator = dist_positive + dist_negative
+    score = np.zeros(len(dist_positive))
+    
+    non_zero_idx = denominator != 0
+    score[non_zero_idx] = dist_negative[non_zero_idx] / denominator[non_zero_idx]
 
-    # 6. Merangking alternatif (ranking dari yang terbesar ke terkecil)
+    # 6. Merangking (Opsional, di Laravel biasanya di-sort sendiri juga bisa)
     ranking = np.argsort(score)[::-1]
 
+    # === BAGIAN PENTING: MENGEMBALIKAN SEMUA DATA UNTUK VIEW LARAVEL ===
+    # .tolist() wajib digunakan agar bisa diubah jadi JSON oleh Flask
     return {
         'scores': score.tolist(),
-        'ranking': ranking.tolist()
+        'ranking': ranking.tolist(),
+        
+        # Data tambahan untuk tabel detail:
+        'normalized_matrix': norm_matrix.tolist(),
+        'weighted_matrix': weighted_matrix.tolist(),
+        'ideal_positive': ideal_positive.tolist(),
+        'ideal_negative': ideal_negative.tolist(),
+        'dist_positive': dist_positive.tolist(),
+        'dist_negative': dist_negative.tolist()
     }
